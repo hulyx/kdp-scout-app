@@ -1,12 +1,19 @@
 import sys
+import os
+import re
+import shutil
+import tempfile
+import zipfile
+import subprocess
+import webbrowser
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QPushButton,
     QStackedWidget, QLabel, QStatusBar, QFrame, QSizePolicy,
-    QSystemTrayIcon, QMenu, QApplication, QComboBox,
+    QSystemTrayIcon, QMenu, QApplication, QComboBox, QMessageBox,
 )
-from PyQt6.QtCore import Qt, QSettings, QTimer, QSize
+from PyQt6.QtCore import Qt, QSettings, QTimer, QSize, QThread, pyqtSignal
 from PyQt6.QtGui import QAction, QIcon, QShortcut, QKeySequence, QPixmap
 
 if getattr(sys, '_MEIPASS', None):
@@ -16,11 +23,47 @@ else:
 _LOGO_ICO = _RESOURCES / "kdpsy.ico"
 _LOGO_PATH = _LOGO_ICO if _LOGO_ICO.exists() else _RESOURCES / "kdpsy.svg"
 
+GITHUB_RAW_VERSION_URL = (
+    "https://raw.githubusercontent.com/hulyx/kdp-scout-app/main/kdp_scout/__init__.py"
+)
+GITHUB_ZIP_URL = (
+    "https://github.com/hulyx/kdp-scout-app/archive/refs/heads/main.zip"
+)
+GITHUB_REPO_URL = "https://github.com/hulyx/kdp-scout-app"
+
 
 def _load_logo_icon() -> QIcon:
     if _LOGO_PATH.exists():
         return QIcon(str(_LOGO_PATH))
     return QIcon()
+
+
+class UpdateCheckerThread(QThread):
+    update_available = pyqtSignal(str)
+    up_to_date = pyqtSignal()
+    check_failed = pyqtSignal()
+
+    def run(self):
+        try:
+            import urllib.request
+            from kdp_scout import __version__ as current_version
+            req = urllib.request.Request(
+                GITHUB_RAW_VERSION_URL,
+                headers={"User-Agent": "KDP-Scout-App/update-checker"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                content = resp.read().decode("utf-8")
+            match = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', content)
+            if not match:
+                self.check_failed.emit()
+                return
+            remote_version = match.group(1)
+            if remote_version != current_version:
+                self.update_available.emit(remote_version)
+            else:
+                self.up_to_date.emit()
+        except Exception:
+            self.check_failed.emit()
 
 
 class SidebarButton(QPushButton):
@@ -91,6 +134,7 @@ class MainWindow(QMainWindow):
         self._setup_ui()
         self._setup_shortcuts()
         self._restore_last_page()
+        self._start_update_check()
 
     def _setup_ui(self):
         central = QWidget()
@@ -192,7 +236,7 @@ class MainWindow(QMainWindow):
             self._nav_buttons.append((label, btn))
             self._source_buttons["reddit"].append(btn)
 
-        # Goodreads nav buttons  ← NEW
+        # Goodreads nav buttons
         self._sidebar_layout.addSpacing(4)
         self._goodreads_section_label = QLabel("  GOODREADS TOOLS")
         self._goodreads_section_label.setStyleSheet("color: #6c7086; font-size: 10px; font-weight: bold; letter-spacing: 1px;")
@@ -223,12 +267,21 @@ class MainWindow(QMainWindow):
 
         self._sidebar_layout.addStretch()
 
+        # Update checker label (above version)
+        self._update_label = QLabel("🔄 Checking...")
+        self._update_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._update_label.setStyleSheet(
+            "color: #6c7086; font-size: 10px; padding: 2px 0;"
+        )
+        self._update_label.setCursor(Qt.CursorShape.ArrowCursor)
+        self._sidebar_layout.addWidget(self._update_label)
+
         # Version
         try:
             from kdp_scout import __version__
             ver_label = QLabel(f"v{__version__}")
         except Exception:
-            ver_label = QLabel("v3.0.0")
+            ver_label = QLabel("v0.4.0")
         ver_label.setProperty("class", "sidebar-version")
         ver_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._sidebar_layout.addWidget(ver_label)
@@ -258,6 +311,114 @@ class MainWindow(QMainWindow):
 
         # Apply initial source visibility
         self._on_source_changed()
+
+    # ------------------------------------------------------------------
+    # Update checker
+    # ------------------------------------------------------------------
+
+    def _start_update_check(self):
+        self._update_thread = UpdateCheckerThread()
+        self._update_thread.update_available.connect(self._on_update_available)
+        self._update_thread.up_to_date.connect(self._on_up_to_date)
+        self._update_thread.check_failed.connect(self._on_check_failed)
+        self._update_thread.start()
+
+    def _on_update_available(self, new_version: str):
+        self._update_label.setText(f"⬆ v{new_version} available!")
+        self._update_label.setStyleSheet(
+            "color: #a6e3a1; font-size: 10px; font-weight: bold; "
+            "padding: 2px 0; text-decoration: underline;"
+        )
+        self._update_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._update_label.mousePressEvent = lambda e, v=new_version: self._do_update(v)
+
+    def _on_up_to_date(self):
+        self._update_label.setText("✓ Up to date")
+        self._update_label.setStyleSheet(
+            "color: #6c7086; font-size: 10px; padding: 2px 0;"
+        )
+        self._update_label.setCursor(Qt.CursorShape.ArrowCursor)
+
+    def _on_check_failed(self):
+        self._update_label.setText("")
+
+    def _do_update(self, new_version: str):
+        if getattr(sys, "frozen", False):
+            webbrowser.open(GITHUB_REPO_URL)
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Update Available",
+            f"Version {new_version} is available.\n\n"
+            "Download and apply the update now?\n"
+            "The app will restart automatically.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._apply_update(new_version)
+
+    def _apply_update(self, new_version: str):
+        import urllib.request
+
+        app_dir = Path(__file__).parent.parent.parent
+
+        self._update_label.setText("⬇ Downloading...")
+        self._update_label.setStyleSheet(
+            "color: #f9e2af; font-size: 10px; font-weight: bold; padding: 2px 0;"
+        )
+        QApplication.processEvents()
+
+        try:
+            tmp_zip = tempfile.mktemp(suffix=".zip")
+            req = urllib.request.Request(
+                GITHUB_ZIP_URL,
+                headers={"User-Agent": "KDP-Scout-App/update-checker"},
+            )
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                with open(tmp_zip, "wb") as f:
+                    f.write(resp.read())
+
+            self._update_label.setText("📦 Extracting...")
+            QApplication.processEvents()
+
+            tmp_dir = tempfile.mkdtemp()
+            with zipfile.ZipFile(tmp_zip, "r") as zf:
+                zf.extractall(tmp_dir)
+
+            extracted = Path(tmp_dir) / "kdp-scout-app-main"
+            for item in extracted.rglob("*"):
+                if item.is_file():
+                    rel = item.relative_to(extracted)
+                    dest = app_dir / rel
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(str(item), str(dest))
+
+            os.unlink(tmp_zip)
+            shutil.rmtree(tmp_dir)
+
+            QMessageBox.information(
+                self,
+                "Update Complete",
+                f"Successfully updated to v{new_version}!\nThe app will now restart.",
+            )
+
+            script = str(app_dir / "kdp_scout_gui.py")
+            subprocess.Popen([sys.executable, script], cwd=str(app_dir))
+            QApplication.instance().quit()
+
+        except Exception as exc:
+            QMessageBox.critical(
+                self, "Update Failed", f"Could not apply update:\n{exc}"
+            )
+            self._update_label.setText("⚠ Update failed — click to retry")
+            self._update_label.setStyleSheet(
+                "color: #f38ba8; font-size: 10px; padding: 2px 0; text-decoration: underline;"
+            )
+            self._update_label.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._update_label.mousePressEvent = lambda e, v=new_version: self._do_update(v)
+
+    # ------------------------------------------------------------------
 
     def _register_page_factories(self):
         from kdp_scout.gui.pages.keywords_page import KeywordsPage
@@ -381,7 +542,6 @@ class MainWindow(QMainWindow):
         settings = QSettings()
         last_page = settings.value("window/last_page", "Keywords")
         if last_page in self._page_factories:
-            # Also restore source
             if last_page.startswith("GR-"):
                 self._source_combo.setCurrentIndex(4)
             elif last_page.startswith("R-"):

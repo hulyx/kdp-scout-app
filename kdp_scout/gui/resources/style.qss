@@ -577,6 +577,46 @@ QMessageBox QLabel {
     font-size: 13px;
 }
 
+/* --- Update checker button --- */
+QPushButton[class="update-check-btn"] {
+    background-color: #252535;
+    border: 1px solid #89b4fa;
+    border-radius: 6px;
+    color: #89b4fa;
+    font-size: 11px;
+    font-weight: bold;
+    padding: 4px 8px;
+    min-height: 0;
+}
+
+QPushButton[class="update-check-btn"]:hover {
+    background-color: rgba(137, 180, 250, 0.18);
+    border-color: #b4befe;
+    color: #b4befe;
+}
+
+QPushButton[class="update-check-btn"]:disabled {
+    background-color: transparent;
+    border-color: #45475a;
+    color: #6c7086;
+    font-weight: normal;
+}
+
+QPushButton[class="update-check-btn-available"] {
+    background-color: rgba(166, 227, 161, 0.12);
+    border: 1px solid #a6e3a1;
+    border-radius: 6px;
+    color: #a6e3a1;
+    font-size: 11px;
+    font-weight: bold;
+    padding: 4px 8px;
+    min-height: 0;
+}
+
+QPushButton[class="update-check-btn-available"]:hover {
+    background-color: rgba(166, 227, 161, 0.25);
+}
+
 /* --- Summary text --- */
 QLabel[class="summary-text"] {
     color: #cdd6f4;

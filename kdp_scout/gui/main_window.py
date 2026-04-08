@@ -131,6 +131,8 @@ class MainWindow(QMainWindow):
             "amazon": [], "google": [], "tiktok": [],
             "reddit": [], "goodreads": [], "common": [],
         }
+        self._update_thread = None
+        self._pending_version = None
         self._setup_ui()
         self._setup_shortcuts()
         self._restore_last_page()
@@ -267,14 +269,25 @@ class MainWindow(QMainWindow):
 
         self._sidebar_layout.addStretch()
 
-        # Update checker label (above version)
-        self._update_label = QLabel("🔄 Checking...")
-        self._update_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._update_label.setStyleSheet(
-            "color: #6c7086; font-size: 10px; padding: 2px 0;"
+        # ── Update checker ──────────────────────────────────────────
+        # "Check for Update" button — always visible by default
+        self._check_update_btn = QPushButton("🔄 Checking...")
+        self._check_update_btn.setFixedHeight(28)
+        self._check_update_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._check_update_btn.setProperty("class", "update-check-btn")
+        self._check_update_btn.setEnabled(False)
+        self._check_update_btn.clicked.connect(self._on_check_update_clicked)
+        self._sidebar_layout.addWidget(self._check_update_btn)
+
+        # Temporary "Up to date!" label (hidden by default)
+        self._update_ok_label = QLabel("✅ Up to date!")
+        self._update_ok_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._update_ok_label.setStyleSheet(
+            "color: #a6e3a1; font-size: 11px; font-weight: bold; padding: 2px 0;"
         )
-        self._update_label.setCursor(Qt.CursorShape.ArrowCursor)
-        self._sidebar_layout.addWidget(self._update_label)
+        self._update_ok_label.hide()
+        self._sidebar_layout.addWidget(self._update_ok_label)
+        # ────────────────────────────────────────────────────────────
 
         # Version
         try:
@@ -316,31 +329,71 @@ class MainWindow(QMainWindow):
     # Update checker
     # ------------------------------------------------------------------
 
+    def _on_check_update_clicked(self):
+        self._start_update_check()
+
     def _start_update_check(self):
+        # Reset button to "Checking…" state
+        self._pending_version = None
+        self._check_update_btn.setText("🔄 Checking...")
+        self._check_update_btn.setEnabled(False)
+        self._set_update_btn_class("update-check-btn")
+        self._update_ok_label.hide()
+        self._check_update_btn.show()
+
+        # Disconnect any old click handler and restore default
+        try:
+            self._check_update_btn.clicked.disconnect()
+        except Exception:
+            pass
+        self._check_update_btn.clicked.connect(self._on_check_update_clicked)
+
         self._update_thread = UpdateCheckerThread()
         self._update_thread.update_available.connect(self._on_update_available)
         self._update_thread.up_to_date.connect(self._on_up_to_date)
         self._update_thread.check_failed.connect(self._on_check_failed)
         self._update_thread.start()
 
+    def _set_update_btn_class(self, cls: str):
+        self._check_update_btn.setProperty("class", cls)
+        self._check_update_btn.style().unpolish(self._check_update_btn)
+        self._check_update_btn.style().polish(self._check_update_btn)
+
     def _on_update_available(self, new_version: str):
-        self._update_label.setText(f"⬆ v{new_version} available!")
-        self._update_label.setStyleSheet(
-            "color: #a6e3a1; font-size: 10px; font-weight: bold; "
-            "padding: 2px 0; text-decoration: underline;"
+        self._pending_version = new_version
+        self._check_update_btn.setText(f"⬆ v{new_version} available!")
+        self._set_update_btn_class("update-check-btn-available")
+        self._check_update_btn.setEnabled(True)
+        try:
+            self._check_update_btn.clicked.disconnect()
+        except Exception:
+            pass
+        self._check_update_btn.clicked.connect(
+            lambda: self._do_update(new_version)
         )
-        self._update_label.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._update_label.mousePressEvent = lambda e, v=new_version: self._do_update(v)
 
     def _on_up_to_date(self):
-        self._update_label.setText("✓ Up to date")
-        self._update_label.setStyleSheet(
-            "color: #6c7086; font-size: 10px; padding: 2px 0;"
-        )
-        self._update_label.setCursor(Qt.CursorShape.ArrowCursor)
+        # Hide button, show "✅ Up to date!" for 15 seconds then restore
+        self._check_update_btn.hide()
+        self._update_ok_label.show()
+        QTimer.singleShot(15000, self._restore_check_update_btn)
+
+    def _restore_check_update_btn(self):
+        self._update_ok_label.hide()
+        self._check_update_btn.setText("🔄 Check for Update")
+        self._set_update_btn_class("update-check-btn")
+        self._check_update_btn.setEnabled(True)
+        try:
+            self._check_update_btn.clicked.disconnect()
+        except Exception:
+            pass
+        self._check_update_btn.clicked.connect(self._on_check_update_clicked)
+        self._check_update_btn.show()
 
     def _on_check_failed(self):
-        self._update_label.setText("")
+        self._check_update_btn.setText("🔄 Check for Update")
+        self._set_update_btn_class("update-check-btn")
+        self._check_update_btn.setEnabled(True)
 
     def _do_update(self, new_version: str):
         if getattr(sys, "frozen", False):
@@ -363,10 +416,8 @@ class MainWindow(QMainWindow):
 
         app_dir = Path(__file__).parent.parent.parent
 
-        self._update_label.setText("⬇ Downloading...")
-        self._update_label.setStyleSheet(
-            "color: #f9e2af; font-size: 10px; font-weight: bold; padding: 2px 0;"
-        )
+        self._check_update_btn.setText("⬇ Downloading...")
+        self._check_update_btn.setEnabled(False)
         QApplication.processEvents()
 
         try:
@@ -379,7 +430,7 @@ class MainWindow(QMainWindow):
                 with open(tmp_zip, "wb") as f:
                     f.write(resp.read())
 
-            self._update_label.setText("📦 Extracting...")
+            self._check_update_btn.setText("📦 Extracting...")
             QApplication.processEvents()
 
             tmp_dir = tempfile.mkdtemp()
@@ -411,12 +462,9 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(
                 self, "Update Failed", f"Could not apply update:\n{exc}"
             )
-            self._update_label.setText("⚠ Update failed — click to retry")
-            self._update_label.setStyleSheet(
-                "color: #f38ba8; font-size: 10px; padding: 2px 0; text-decoration: underline;"
-            )
-            self._update_label.setCursor(Qt.CursorShape.PointingHandCursor)
-            self._update_label.mousePressEvent = lambda e, v=new_version: self._do_update(v)
+            self._check_update_btn.setText(f"⬆ v{new_version} available!")
+            self._set_update_btn_class("update-check-btn-available")
+            self._check_update_btn.setEnabled(True)
 
     # ------------------------------------------------------------------
 

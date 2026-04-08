@@ -277,7 +277,6 @@ class MainWindow(QMainWindow):
         self._sidebar_layout.addStretch()
 
         # ── Update checker ──────────────────────────────────────────
-        # "Check for Update" button — always visible by default
         self._check_update_btn = QPushButton("🔄 Checking...")
         self._check_update_btn.setFixedHeight(28)
         self._check_update_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -285,15 +284,6 @@ class MainWindow(QMainWindow):
         self._check_update_btn.setEnabled(False)
         self._check_update_btn.clicked.connect(self._on_check_update_clicked)
         self._sidebar_layout.addWidget(self._check_update_btn)
-
-        # Temporary "Up to date!" label (hidden by default)
-        self._update_ok_label = QLabel("✅ Up to date!")
-        self._update_ok_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._update_ok_label.setStyleSheet(
-            "color: #a6e3a1; font-size: 11px; font-weight: bold; padding: 2px 0;"
-        )
-        self._update_ok_label.hide()
-        self._sidebar_layout.addWidget(self._update_ok_label)
         # ────────────────────────────────────────────────────────────
 
         # Version
@@ -381,13 +371,12 @@ class MainWindow(QMainWindow):
         )
 
     def _on_up_to_date(self):
-        # Hide button, show "✅ Up to date!" for 15 seconds then restore
-        self._check_update_btn.hide()
-        self._update_ok_label.show()
-        QTimer.singleShot(15000, self._restore_check_update_btn)
+        self._check_update_btn.setText("✅ Up to date!")
+        self._set_update_btn_class("update-check-btn")
+        self._check_update_btn.setEnabled(False)
+        QTimer.singleShot(10000, self._restore_check_update_btn)
 
     def _restore_check_update_btn(self):
-        self._update_ok_label.hide()
         self._check_update_btn.setText("🔄 Check for Update")
         self._set_update_btn_class("update-check-btn")
         self._check_update_btn.setEnabled(True)
@@ -396,7 +385,6 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self._check_update_btn.clicked.connect(self._on_check_update_clicked)
-        self._check_update_btn.show()
 
     def _on_check_failed(self):
         self._check_update_btn.setText("🔄 Check for Update")

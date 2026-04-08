@@ -87,8 +87,9 @@ class GoogleTrendingWorker(BaseWorker):
             if not has_pytrends():
                 self.log.emit("pytrends not installed — install with: pip install pytrends")
                 self.log.emit("Falling back to Google Suggest related searches...\n")
-                from kdp_scout.collectors.google_suggest import get_related_searches
-                raw = get_related_searches(
+                # Use async parallel variant — faster fallback when pytrends not installed.
+                from kdp_scout.collectors.google_suggest import get_related_searches_fast
+                raw = get_related_searches_fast(
                     self.keyword,
                     progress_callback=lambda c, t: self.progress.emit(c, t),
                     cancel_check=lambda: self.is_cancelled,
@@ -122,8 +123,10 @@ class GoogleTrendingWorker(BaseWorker):
 
             if self.niche_keywords:
                 self.log.emit(f"Niche filter: {', '.join(self.niche_keywords)}")
-            from kdp_scout.collectors.google_trends import get_trending_book_searches
-            raw = get_trending_book_searches(
+            # Use async parallel variant when aiohttp is available (faster suggest enrichment).
+            # Falls back to sync automatically if aiohttp is not installed.
+            from kdp_scout.collectors.google_trends import get_trending_book_searches_fast
+            raw = get_trending_book_searches_fast(
                 geo="US",
                 niche_keywords=self.niche_keywords,
                 progress_callback=lambda c, t: (

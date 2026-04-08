@@ -51,7 +51,7 @@ class RedditDemandWorker(BaseWorker):
         if self.is_cancelled:
             return {"results": [], "mode": self.mode}
 
-        items.sort(key=lambda x: x.get("engagement_score", 0), reverse=True)
+        items.sort(key=lambda x: x.get("score", x.get("engagement_score", 0)), reverse=True)
 
         self.log.emit(f"\n✅ Found {len(items)} demand signals from Reddit")
         return {"results": items, "mode": self.mode}
@@ -315,16 +315,54 @@ class RedditDemandPage(QWidget):
         else:
             rows = []
             for i, r in enumerate(results):
-                genres = r.get("genres", [])
-                subs = r.get("subreddits", [])
+                # --- Subreddits ---
+                # Collector returns "subreddit" as a comma-separated string
+                # (e.g. "romancebooks, Fantasy") — handle both string and list.
+                subs_raw = r.get("subreddit", r.get("subreddits", ""))
+                if isinstance(subs_raw, list):
+                    subs_display = ", ".join(
+                        f"r/{s}" for s in subs_raw[:3]
+                    ) if subs_raw else "—"
+                else:
+                    # already a comma-separated string; prefix each token with r/
+                    tokens = [s.strip() for s in subs_raw.split(",") if s.strip()]
+                    subs_display = ", ".join(
+                        f"r/{t}" for t in tokens[:3]
+                    ) if tokens else "—"
+
+                # --- Genres ---
+                # The collector does not produce a "genres" field; infer from
+                # the keyword itself using the same category helper.
+                genres_raw = r.get("genres", [])
+                if genres_raw:
+                    genres_display = ", ".join(genres_raw[:3])
+                else:
+                    from kdp_scout.collectors.reddit_demand import _guess_reddit_category
+                    cat = _guess_reddit_category(r.get("keyword", ""))
+                    genres_display = cat.replace("_", " ").title() if cat != "general" else "—"
+
+                # --- Demand Signal ---
+                # Collector aggregates posts; use presence of real engagement
+                # to distinguish live-scraped signals from static baseline.
+                engagement = r.get("engagement", 0)
+                post_count = r.get("posts", r.get("post_count", 0))
+                if engagement > 0:
+                    demand_display = "🔴 Live"
+                elif post_count > 0:
+                    demand_display = "✅ Signal"
+                else:
+                    demand_display = "📚 Baseline"
+
                 rows.append({
                     "rank": i + 1,
                     "keyword": r.get("keyword", ""),
-                    "score": f"{r.get('engagement_score', 0):.0f}",
-                    "genres": ", ".join(genres[:3]) if genres else "—",
-                    "subreddits": ", ".join(f"r/{s}" for s in subs[:3]) if subs else "—",
-                    "demand": "✅" if r.get("is_demand_post") else "—",
-                    "posts": str(r.get("post_count", 1)),
+                    # Collector uses "score" (not "engagement_score")
+                    "score": f"{r.get('score', r.get('engagement_score', 0)):.0f}",
+                    "genres": genres_display,
+                    "subreddits": subs_display,
+                    "demand": demand_display,
+                    # Collector uses "posts" (not "post_count")
+                    "posts": str(post_count) if post_count else "1",
                 })
             self._table.load_data(rows, COLUMNS, DISPLAY)
             self._status.setText(f"✅ {len(rows)} demand signals from Reddit")

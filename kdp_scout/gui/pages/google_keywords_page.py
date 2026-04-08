@@ -39,8 +39,10 @@ class GoogleKeywordsWorker(BaseWorker):
             self.log.emit(f"Alphabet crawl + question patterns for: {self.seed}")
             self.log.emit("This may take 1-2 minutes...\n")
 
-            from kdp_scout.collectors.google_suggest import mine_suggest_keywords
-            results = mine_suggest_keywords(
+            # Use async parallel variant (aiohttp) when available — ~10x faster.
+            # Falls back to sync automatically if aiohttp is not installed.
+            from kdp_scout.collectors.google_suggest import mine_suggest_keywords_fast
+            results = mine_suggest_keywords_fast(
                 self.seed,
                 progress_callback=lambda c, t: (self.progress.emit(c, t),
                                                  self.log.emit(f"  {c}/{t} queries...") if c % 15 == 0 else None),

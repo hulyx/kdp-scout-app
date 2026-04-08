@@ -231,3 +231,82 @@ def get_related_topics(keyword):
     except Exception as e:
         logger.error(f"Google Trends related_topics failed: {e}")
         return {"top": [], "rising": []}
+
+
+def get_trending_book_searches_fast(geo="US", niche_keywords=None,
+                                     progress_callback=None, cancel_check=None):
+    """Async-accelerated version of get_trending_book_searches.
+
+    Batches all Google Suggest enrichment calls and fires them in parallel
+    using aiohttp (semaphore=10). Falls back to the sync version automatically
+    if aiohttp is not installed.
+
+    Args / Returns: identical to get_trending_book_searches.
+    """
+    try:
+        import aiohttp as _aiohttp  # noqa: F401 — existence check only
+    except ImportError:
+        return get_trending_book_searches(
+            geo=geo,
+            niche_keywords=niche_keywords,
+            progress_callback=progress_callback,
+            cancel_check=cancel_check,
+        )
+
+    import asyncio
+    from kdp_scout.collectors.google_suggest import _discover_suggest_async
+
+    def _cancelled():
+        return cancel_check and cancel_check()
+
+    # Step 1 — fetch RSS trending (fast, 1 HTTP call)
+    trends = get_trending_searches(geo=geo)
+    if _cancelled():
+        return []
+
+    # Step 2 — build the full list of suggest queries to batch
+    if niche_keywords:
+        niches_lower = [n.lower() for n in niche_keywords]
+        filtered_trends = [t for t in trends
+                           if any(n in t["query"].lower() for n in niches_lower)]
+        book_suffixes = [f" {n}" for n in niche_keywords[:5]]
+        niche_queries = []
+        for nk in niche_keywords[:5]:
+            for bsuf in [" book", " kindle", " novel", " bestseller"]:
+                niche_queries.append(nk + bsuf)
+    else:
+        filtered_trends = trends
+        book_suffixes = [" book", " kindle", " novel"]
+        niche_queries = []
+
+    enrich_trends = filtered_trends[:10] if filtered_trends else trends[:10]
+    suggest_queries = list(niche_queries)
+    for item in enrich_trends:
+        for suffix in book_suffixes:
+            suggest_queries.append(item["query"] + suffix)
+
+    # Step 3 — fire all suggest queries in parallel
+    raw_pairs = asyncio.run(
+        _discover_suggest_async(suggest_queries, progress_callback, cancel_check)
+    )
+
+    # Step 4 — build results: raw trends first, then enriched suggestions
+    results = []
+    for item in filtered_trends:
+        results.append({
+            "query": item["query"],
+            "traffic": item.get("traffic", ""),
+            "source": "Google Trending Now",
+        })
+
+    seen = {r["query"].lower() for r in results}
+    for kw, _ in raw_pairs:
+        if kw.lower() not in seen:
+            seen.add(kw.lower())
+            results.append({
+                "query": kw,
+                "traffic": "",
+                "source": "Suggest (enriched)",
+            })
+
+    return results

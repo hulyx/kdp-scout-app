@@ -12,13 +12,19 @@ New in this version:
 """
 
 import os
+import sys
 import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
 
 _project_root = Path(__file__).parent.parent
-load_dotenv(_project_root / '.env')
+
+# When frozen by PyInstaller, __file__ resolves to the temporary extraction
+# folder (sys._MEIPASS) which is destroyed on exit.  We load .env from the
+# directory that contains the executable so settings survive across sessions.
+_env_base = Path(sys.executable).parent if getattr(sys, 'frozen', False) else _project_root
+load_dotenv(_env_base / '.env')
 
 
 class Config:
@@ -94,11 +100,34 @@ class Config:
 
     @classmethod
     def get_db_path(cls):
-        """Return absolute path to the database file."""
+        """Return absolute path to the database file.
+
+        When running as a PyInstaller bundle, ``__file__`` (and therefore
+        ``_project_root``) points to the temporary extraction folder
+        ``sys._MEIPASS``, which is **destroyed on exit**.  Any database
+        stored there would be wiped between sessions, causing all search
+        history to be lost.
+
+        Fix: when frozen, resolve the path relative to the directory that
+        contains the executable (e.g. ``dist/KDP Scout App/``), which is
+        permanent and lives next to the ``.exe`` file the user launched.
+        """
         db_path = Path(cls.DB_PATH)
-        if not db_path.is_absolute():
-            db_path = _project_root / db_path
-        return str(db_path)
+        if db_path.is_absolute():
+            return str(db_path)
+
+        if getattr(sys, 'frozen', False):
+            # Running as a compiled .exe — use the exe's own directory so data
+            # persists across sessions and disappears only when the user
+            # deletes the app folder.
+            base = Path(sys.executable).parent
+        else:
+            # Running from source — keep the original behaviour.
+            base = _project_root
+
+        resolved = base / db_path
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        return str(resolved)
 
     @classmethod
     def get_marketplace_domain(cls, marketplace='us'):

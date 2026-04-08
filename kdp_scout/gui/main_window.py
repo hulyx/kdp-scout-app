@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QPushButton,
     QStackedWidget, QLabel, QStatusBar, QFrame, QSizePolicy,
     QSystemTrayIcon, QMenu, QApplication, QComboBox, QMessageBox,
+    QDialog, QDialogButtonBox,
 )
 from PyQt6.QtCore import Qt, QSettings, QTimer, QSize, QThread, pyqtSignal
 from PyQt6.QtGui import QAction, QIcon, QShortcut, QKeySequence, QPixmap
@@ -392,19 +393,40 @@ class MainWindow(QMainWindow):
         self._check_update_btn.setEnabled(True)
 
     def _do_update(self, new_version: str, exe_url: str = ""):
-        reply = QMessageBox.question(
-            self,
-            "Update Available",
-            f"Version {new_version} is available.\n\n"
-            "Download and apply the update now?\n"
-            "The app will restart automatically.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Update Available")
+        dialog.setMinimumWidth(380)
+        layout = QVBoxLayout(dialog)
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 20, 20, 16)
+
+        msg = QLabel(
+            f"<b>Version {new_version} is available.</b><br><br>"
+            "Download and apply the update now?<br>"
+            "<span style=\'color:#888;font-size:11px;\'>The app will restart automatically.</span>"
         )
-        if reply != QMessageBox.StandardButton.Yes:
+        msg.setWordWrap(True)
+        msg.setTextFormat(Qt.TextFormat.RichText)
+        layout.addWidget(msg)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Yes | QDialogButtonBox.StandardButton.No
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        link = QLabel(f'<a href="{GITHUB_REPO_URL}/releases/latest" style="font-size:11px;color:#89b4fa;">Check on GitHub</a>')
+        link.setTextFormat(Qt.TextFormat.RichText)
+        link.setOpenExternalLinks(True)
+        link.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(link)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         if getattr(sys, "frozen", False):
             if not exe_url:
-                webbrowser.open(GITHUB_REPO_URL)
+                webbrowser.open(f"{GITHUB_REPO_URL}/releases/latest")
                 return
             self._apply_frozen_update(new_version, exe_url)
         else:

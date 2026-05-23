@@ -1,28 +1,37 @@
+```
 # Python
 __pycache__/
 *.pyc
 *.pyo
-*.egg-info/
-.eggs/
-*.egg
+*.pyd
+
+# Dependencies
+.venv/
+venv/
+.env
+.env.local
+*.env.*
 
 # Build artifacts
 build/
 dist/
-*.spec.bak
-build_log.txt
 
-# Data
-data/
+# Logs
+*.log
 
-# Environment
-.env
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
 
-# Executable/binary files (keep these if generated locally)
-*.exe
-*.dll
-*.so
-*.a
-*.obj
-*.out
-scout-app.exe
+# Coverage
+.coverage
+coverage/
+htmlcov/
+
+# Testing
+.pytest_cache/
+.mypy_cache/
+```

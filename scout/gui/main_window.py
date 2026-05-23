@@ -301,6 +301,14 @@ class MainWindow(QMainWindow):
         pod_layout.setContentsMargins(0, 0, 0, 0)
         pod_layout.setSpacing(4)
 
+        # ── Automated Product Creation menu item (just above Data Sources) ───────────
+        self._product_creator_btn = SidebarButton("🎨", "Product Creator")
+        self._product_creator_btn.clicked.connect(lambda checked: self._switch_pod_page("Product Creator"))
+        pod_layout.addWidget(self._product_creator_btn)
+        self._nav_buttons.append(("Product Creator", self._product_creator_btn))
+
+        pod_layout.addSpacing(8)
+
         # POD source selector
         pod_source_label = QLabel("  Data Sources")
         pod_source_label.setStyleSheet("color: #6c7086; font-size: 11px; font-weight: bold;")
@@ -743,6 +751,7 @@ class MainWindow(QMainWindow):
             from scout.gui.pages.pod_amazon_trends_page import PodAmazonTrendsPage
             from scout.gui.pages.pod_nichebloom_page import PodNicheBloomPage
             from scout.gui.pages.pod_bubbletrends_page import PodBubbleTrendsPage
+            from scout.gui.pages.pod_product_creator_page import PodProductCreatorPage
 
             self._pod_page_factories = {
                 "Keywords": PodKeywordsPage,
@@ -758,6 +767,7 @@ class MainWindow(QMainWindow):
                 "Amazon Trends": PodAmazonTrendsPage,
                 "Bloom Trends": PodNicheBloomPage,
                 "Bubble Trends": PodBubbleTrendsPage,
+                "Product Creator": PodProductCreatorPage,
             }
         except Exception as e:
             print(f'Failed to register POD pages: {e}')

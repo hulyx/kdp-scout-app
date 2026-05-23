@@ -332,7 +332,6 @@ class PodProductCreatorPage(QWidget):
                 background-color: #252538;
             }
         """)
-        self._drop_zone.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         drop_label = QLabel("📤 Drag & Drop Images Here\nor click to browse")
         drop_label.setStyleSheet("color: #a6adc8; font-size: 13px;")
